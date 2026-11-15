@@ -1,0 +1,227 @@
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import random
+
+
+class Rect:
+    def __init__(self, x, y, w, h, item_id=None):
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.item_id = item_id
+
+    def intersects(self, other):
+        return not (
+            self.x + self.w <= other.x
+            or other.x + other.w <= self.x
+            or self.y + self.h <= other.y
+            or other.y + other.h <= self.y
+        )
+
+    def is_contained_in(self, other):
+        return (
+            self.x >= other.x
+            and self.y >= other.y
+            and self.x + self.w <= other.x + other.w
+            and self.y + self.h <= other.y + other.h
+        )
+
+
+class MaxRectsBinPacker:
+    def __init__(self, width, height):
+        self.bin_width = width
+        self.bin_height = height
+        self.free_rects = [Rect(0, 0, width, height)]
+        self.placed_rects = []
+
+    def insert(self, w, h, item_id=None):
+        best_node = self._find_position_bssf(w, h)
+        if best_node is None:
+            return None
+
+        best_node.item_id = item_id
+        self._place_rect(best_node)
+        return best_node
+
+    def _find_position_bssf(self, w, h):
+        best_node = None
+        best_short_side_fit = float('inf')
+        best_long_side_fit = float('inf')
+
+        for free_rect in self.free_rects:
+            if free_rect.w >= w and free_rect.h >= h:
+                leftover_horiz = abs(free_rect.w - w)
+                leftover_vert = abs(free_rect.h - h)
+                short_side_fit = min(leftover_horiz, leftover_vert)
+                long_side_fit = max(leftover_horiz, leftover_vert)
+
+                if (short_side_fit < best_short_side_fit or
+                        (short_side_fit == best_short_side_fit and long_side_fit < best_long_side_fit)):
+                    best_node = Rect(free_rect.x, free_rect.y, w, h)
+                    best_short_side_fit = short_side_fit
+                    best_long_side_fit = long_side_fit
+
+        return best_node
+
+    def _place_rect(self, node):
+        num_rects_to_process = len(self.free_rects)
+        i = 0
+
+        while i < num_rects_to_process:
+            if self._split_free_node(self.free_rects[i], node):
+                self.free_rects.pop(i)
+                i -= 1
+                num_rects_to_process -= 1
+            i += 1
+
+        self._prune_free_list()
+        self.placed_rects.append(node)
+
+    def _split_free_node(self, free_node, used_node):
+        if not free_node.intersects(used_node):
+            return False
+
+        if used_node.x < free_node.x + free_node.w and used_node.x + used_node.w > free_node.x:
+            if used_node.y > free_node.y and used_node.y < free_node.y + free_node.h:
+                new_node = Rect(
+                    free_node.x,
+                    free_node.y,
+                    free_node.w,
+                    used_node.y - free_node.y
+                )
+                self.free_rects.append(new_node)
+
+            if used_node.y + used_node.h < free_node.y + free_node.h:
+                new_node = Rect(
+                    free_node.x,
+                    used_node.y + used_node.h,
+                    free_node.w,
+                    (free_node.y + free_node.h) - (used_node.y + used_node.h)
+                )
+                self.free_rects.append(new_node)
+
+        if used_node.y < free_node.y + free_node.h and used_node.y + used_node.h > free_node.y:
+            if used_node.x > free_node.x and used_node.x < free_node.x + free_node.w:
+                new_node = Rect(
+                    free_node.x,
+                    free_node.y,
+                    used_node.x - free_node.x,
+                    free_node.h
+                )
+                self.free_rects.append(new_node)
+
+            if used_node.x + used_node.w < free_node.x + free_node.w:
+                new_node = Rect(
+                    used_node.x + used_node.w,
+                    free_node.y,
+                    (free_node.x + free_node.w) - (used_node.x + used_node.w),
+                    free_node.h
+                )
+                self.free_rects.append(new_node)
+
+        return True
+
+    def _prune_free_list(self):
+        i = 0
+
+        while i < len(self.free_rects):
+            j = i + 1
+
+            while j < len(self.free_rects):
+                if self.free_rects[i].is_contained_in(self.free_rects[j]):
+                    self.free_rects.pop(i)
+                    i -= 1
+                    break
+
+                if self.free_rects[j].is_contained_in(self.free_rects[i]):
+                    self.free_rects.pop(j)
+                    j -= 1
+
+                j += 1
+
+            i += 1
+
+    def get_density(self):
+        used_area = sum(r.w * r.h for r in self.placed_rects)
+        total_area = self.bin_width * self.bin_height
+        return (used_area / total_area) * 100.0
+
+
+def visualize_packing(packer):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_xlim(0, packer.bin_width)
+    ax.set_ylim(0, packer.bin_height)
+    ax.set_aspect('equal')
+
+    ax.set_title(
+        f"MaxRects (BSSF) Packing | Density: {packer.get_density():.2f}% "
+        f"| Placed: {len(packer.placed_rects)} objects"
+    )
+
+    ax.set_xlabel("Width (W)")
+    ax.set_ylabel("Height (H)")
+
+    random.seed(42)
+
+    for r in packer.placed_rects:
+        color = (
+            random.uniform(0.3, 0.85),
+            random.uniform(0.3, 0.85),
+            random.uniform(0.3, 0.85)
+        )
+
+        rect_patch = patches.Rectangle(
+            (r.x, r.y),
+            r.w,
+            r.h,
+            linewidth=1.2,
+            edgecolor='black',
+            facecolor=color,
+            alpha=0.8
+        )
+
+        ax.add_patch(rect_patch)
+
+        ax.text(
+            r.x + r.w / 2,
+            r.y + r.h / 2,
+            f"#{r.item_id}\n({r.w}x{r.h})",
+            ha='center',
+            va='center',
+            fontsize=8,
+            color='white',
+            fontweight='bold'
+        )
+
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == "__main__":
+    W, H = 100, 100
+
+    random.seed(10)
+
+    items = [
+        (i + 1, random.randint(8, 28), random.randint(8, 28))
+        for i in range(35)
+    ]
+
+    items_sorted = sorted(
+        items,
+        key=lambda x: x[1] * x[2],
+        reverse=True
+    )
+
+    packer = MaxRectsBinPacker(W, H)
+
+    for item_id, w, h in items_sorted:
+        packer.insert(w, h, item_id)
+
+    print(f"Bin dimensions: {W} x {H}")
+    print(f"Total objects: {len(items)}, Placed: {len(packer.placed_rects)}")
+    print(f"Packing density: {packer.get_density():.2f}%")
+
+    visualize_packing(packer)
